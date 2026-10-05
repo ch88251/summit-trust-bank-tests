@@ -1,0 +1,12 @@
+{
+  "quotes": {
+    "AAPL": { "name": "Apple Inc.", "price": 189.84 },
+    "AMZN": { "name": "Amazon.com Inc.", "price": 182.75 },
+    "GOOGL": { "name": "Alphabet Inc. Class A", "price": 168.2 },
+    "JPM": { "name": "JPMorgan Chase & Co.", "price": 205.6 },
+    "MSFT": { "name": "Microsoft Corp.", "price": 415.5 },
+    "NVDA": { "name": "NVIDIA Corp.", "price": 121.4 },
+    "TSLA": { "name": "Tesla Inc.", "price": 248.3 },
+    "VTI": { "name": "Vanguard Total Stock Market ETF", "price": 268.9 }
+  }
+}

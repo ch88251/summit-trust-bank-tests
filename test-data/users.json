@@ -1,0 +1,40 @@
+{
+  "defaultUser": "demo",
+  "users": {
+    "demo": {
+      "username": "demo",
+      "password": "Demo@123",
+      "fullName": "Alex Morgan",
+      "email": "alex.morgan@example.com",
+      "accounts": {
+        "checking": { "number": "1000234567", "type": "CHECKING", "nickname": "Everyday Checking", "balance": 8992.97 },
+        "savings": { "number": "2000238812", "type": "SAVINGS", "nickname": "High-Yield Savings", "balance": 18044.42 },
+        "brokerage": { "number": "3000231190", "type": "BROKERAGE", "nickname": "Self-Directed Brokerage", "balance": 10000.0 }
+      },
+      "holdings": {
+        "AAPL": { "quantity": 25, "avgCost": 170.25 },
+        "MSFT": { "quantity": 10, "avgCost": 380.0 },
+        "VTI": { "quantity": 15, "avgCost": 240.1 }
+      },
+      "payees": [
+        { "name": "City Electric", "accountNumber": "88442211", "nickname": "Electric" },
+        { "name": "Metro Water", "accountNumber": "55120987", "nickname": "Water" },
+        { "name": "Summit Visa Card", "accountNumber": "4111222233334444", "nickname": "Credit Card" }
+      ]
+    },
+    "jane": {
+      "username": "jane",
+      "password": "Jane@123",
+      "fullName": "Jane Cooper",
+      "email": "jane.cooper@example.com",
+      "accounts": {
+        "checking": { "number": "1000987654", "type": "CHECKING", "nickname": "Primary Checking", "balance": 1200.0 },
+        "savings": { "number": "2000981432", "type": "SAVINGS", "nickname": "Rainy Day Savings", "balance": 3000.0 }
+      },
+      "holdings": {},
+      "payees": [
+        { "name": "Northside Gas Co.", "accountNumber": "77001234", "nickname": null }
+      ]
+    }
+  }
+}

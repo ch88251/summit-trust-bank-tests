@@ -1,0 +1,13 @@
+{
+  "otherUser": "jane",
+  "transactionFilter": { "account": "checking", "category": "PAYMENT", "rowLabel": "Payment" },
+  "emptyFilter": { "account": "savings", "category": "TRADE", "message": "No transactions found." },
+  "depositWithdrawAccount": "savings",
+  "noDepositWithdrawAccount": "brokerage",
+  "api": {
+    "filterCategory": { "account": "checking", "category": "DEPOSIT" },
+    "invalidCategory": "BOGUS",
+    "transactionLimit": 3,
+    "resetCheck": { "from": "checking", "to": "savings", "amount": "100.00" }
+  }
+}

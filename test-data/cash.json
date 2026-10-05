@@ -1,0 +1,33 @@
+{
+  "maxDeposit": 10000,
+  "deposit": { "type": "DEPOSIT", "account": "checking", "amount": "1500.00", "memo": "Bonus" },
+  "withdrawal": { "type": "WITHDRAWAL", "account": "savings", "amount": "44.42" },
+  "depositAtLimit": { "type": "DEPOSIT", "account": "checking", "amount": "10000" },
+  "withdrawalOverBalance": { "type": "WITHDRAWAL", "account": "checking" },
+  "nonCashAccount": "brokerage",
+  "invalidTransactions": [
+    {
+      "scenario": "rejects deposits over the per-transaction limit",
+      "input": { "type": "DEPOSIT", "account": "checking", "amount": "10000.01" },
+      "expected": { "error": "Deposits are limited to $10,000.00 per transaction." }
+    },
+    {
+      "scenario": "requires an account",
+      "input": { "type": "DEPOSIT", "amount": "10" },
+      "expected": { "error": "Please select an account." }
+    }
+  ],
+  "messages": {
+    "overBalance": "Amount exceeds the available balance."
+  },
+  "api": {
+    "deposit": { "account": "savings", "amount": "200.00" },
+    "withdrawal": { "account": "savings", "amount": "50.00" },
+    "depositOverLimit": {
+      "account": "checking",
+      "amount": "10000.01",
+      "error": "Deposits are limited to $10,000.00 per transaction"
+    },
+    "nonCashAccount": { "account": "brokerage", "amount": "1" }
+  }
+}

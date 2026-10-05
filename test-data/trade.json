@@ -1,0 +1,98 @@
+{
+  "estimate": { "side": "BUY", "symbol": "NVDA", "quantity": 3 },
+  "buyNewPosition": {
+    "scenario": "buys a new position",
+    "input": { "side": "BUY", "symbol": "NVDA", "quantity": 10 },
+    "expected": {
+      "reviewSide": "Buy",
+      "total": "$1,214.00",
+      "cost": 1214,
+      "message": "Order filled: Bought 10 NVDA @ $121.40 for $1,214.00.",
+      "ledgerDescription": "Buy 10 NVDA @ 121.40"
+    }
+  },
+  "addToPosition": { "side": "BUY", "symbol": "AAPL", "quantity": 5 },
+  "partialSell": {
+    "scenario": "partially sells a position",
+    "input": { "side": "SELL", "symbol": "MSFT", "quantity": 4 },
+    "expected": { "message": "Sold 4 MSFT @ $415.50 for $1,662.00.", "proceeds": 1662 }
+  },
+  "sellAll": "VTI",
+  "editOrder": { "side": "BUY", "symbol": "TSLA", "quantity": 2 },
+  "invalidOrders": [
+    { "scenario": "requires a symbol", "input": {}, "expected": { "error": "Please select a symbol." } },
+    {
+      "scenario": "rejects quantity 0",
+      "input": { "side": "BUY", "symbol": "AAPL", "quantity": "0" },
+      "expected": { "error": "Quantity must be a whole number greater than 0." }
+    },
+    {
+      "scenario": "rejects quantity -1",
+      "input": { "side": "BUY", "symbol": "AAPL", "quantity": "-1" },
+      "expected": { "error": "Quantity must be a whole number greater than 0." }
+    },
+    {
+      "scenario": "rejects quantity 1.5",
+      "input": { "side": "BUY", "symbol": "AAPL", "quantity": "1.5" },
+      "expected": { "error": "Quantity must be a whole number greater than 0." }
+    },
+    {
+      "scenario": "rejects buys over available cash",
+      "input": { "side": "BUY", "symbol": "MSFT", "quantity": 100 },
+      "expected": { "error": "Insufficient cash for this order." }
+    },
+    {
+      "scenario": "rejects selling more shares than owned",
+      "input": { "side": "SELL", "symbol": "AAPL", "quantity": 26 },
+      "expected": { "error": "You only own 25 shares of AAPL." }
+    },
+    {
+      "scenario": "rejects selling a symbol not owned",
+      "input": { "side": "SELL", "symbol": "TSLA", "quantity": 1 },
+      "expected": { "error": "You only own 0 shares of TSLA." }
+    }
+  ],
+  "noBrokerageUser": "jane",
+  "api": {
+    "roundTrip": { "symbol": "jpm", "quantity": 5, "expected": { "symbol": "JPM", "price": 205.6, "total": 1028 } },
+    "averageCost": { "symbol": "AAPL", "quantity": 25 },
+    "rejectedOrders": [
+      {
+        "scenario": "insufficient funds is 400",
+        "input": { "account": "brokerage", "symbol": "MSFT", "side": "BUY", "quantity": 100 },
+        "expected": { "status": 400, "error": "Insufficient funds" }
+      },
+      {
+        "scenario": "selling more than owned is 400",
+        "input": { "account": "brokerage", "symbol": "AAPL", "side": "SELL", "quantity": 26 },
+        "expected": { "status": 400, "error": "Insufficient shares: you own 25 AAPL" }
+      },
+      {
+        "scenario": "trading from a checking account is 400",
+        "input": { "account": "checking", "symbol": "AAPL", "side": "BUY", "quantity": 1 },
+        "expected": { "status": 400, "error": "Trading is only available in brokerage accounts" }
+      },
+      {
+        "scenario": "unknown symbol is 404",
+        "input": { "account": "brokerage", "symbol": "ZZZZ", "side": "BUY", "quantity": 1 },
+        "expected": { "status": 404 }
+      },
+      {
+        "scenario": "quantity 0 is 422",
+        "input": { "account": "brokerage", "symbol": "AAPL", "side": "BUY", "quantity": 0 },
+        "expected": { "status": 422 }
+      },
+      {
+        "scenario": "quantity -1 is 422",
+        "input": { "account": "brokerage", "symbol": "AAPL", "side": "BUY", "quantity": -1 },
+        "expected": { "status": 422 }
+      },
+      {
+        "scenario": "quantity 100001 is 422",
+        "input": { "account": "brokerage", "symbol": "AAPL", "side": "BUY", "quantity": 100001 },
+        "expected": { "status": 422 }
+      }
+    ],
+    "unknownSymbol": "ZZZZ"
+  }
+}

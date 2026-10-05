@@ -1,6 +1,21 @@
-import { expect, test } from '../../src/fixtures';
-import { quotes, users } from '../../src/data/testData';
-import { cents } from '../../src/utils/format';
+import { accountOf, cents, expect, loadData, test, type Scenario } from '@framework';
+
+interface OrderRequest {
+  account: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  quantity: number;
+}
+
+const { quotes } = loadData<{ quotes: Record<string, { name: string; price: number }> }>('market');
+const data = loadData<{
+  api: {
+    roundTrip: { symbol: string; quantity: number; expected: { symbol: string; price: number; total: number } };
+    averageCost: { symbol: string; quantity: number };
+    rejectedOrders: Scenario<OrderRequest, { status: number; error?: string }>[];
+    unknownSymbol: string;
+  };
+}>('trade').api;
 
 test.describe('Trade API', () => {
   test('lists all quotes with fixed prices', async ({ api }) => {
@@ -11,86 +26,74 @@ test.describe('Trade API', () => {
   });
 
   test('single quote is case-insensitive; unknown is 404', async ({ api }) => {
-    expect((await (await api.get('/trade/quotes/aapl')).json()).symbol).toBe('AAPL');
-    expect((await api.get('/trade/quotes/ZZZZ')).status()).toBe(404);
+    const symbol = Object.keys(quotes)[0];
+    expect((await (await api.get(`/trade/quotes/${symbol.toLowerCase()}`)).json()).symbol).toBe(symbol);
+    expect((await api.get(`/trade/quotes/${data.unknownSymbol}`)).status()).toBe(404);
   });
 
-  test('portfolio values are consistent', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
+  test('portfolio values are consistent', async ({ api, user }) => {
+    const brokerage = await api.accountByNumber(user.accounts.brokerage.number);
     const p = await api.portfolio(brokerage.id);
-    expect(p.cash).toBe(users.demo.accounts.brokerage.balance);
+    expect(p.cash).toBe(user.accounts.brokerage.balance);
+    expect(p.holdings.map((h) => h.symbol).sort()).toEqual(Object.keys(user.holdings).sort());
     for (const h of p.holdings) {
-      expect(h.quantity).toBe(users.demo.holdings[h.symbol]);
+      expect(h.quantity).toBe(user.holdings[h.symbol].quantity);
+      expect(h.avg_cost).toBe(user.holdings[h.symbol].avgCost);
       expect(h.market_value).toBe(cents(h.price * h.quantity));
     }
     expect(p.total_value).toBe(cents(p.cash + p.holdings_value));
   });
 
-  test('portfolio for a non-brokerage account is 400', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
+  test('portfolio for a non-brokerage account is 400', async ({ api, user }) => {
+    const checking = await api.accountByNumber(user.accounts.checking.number);
     expect((await api.get(`/trade/portfolio/${checking.id}`)).status()).toBe(400);
   });
 
-  test('buy then sell round trip', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
+  test('buy then sell round trip', async ({ api, user }) => {
+    const { symbol, quantity, expected } = data.roundTrip;
+    const seedCash = user.accounts.brokerage.balance;
+    const brokerage = await api.accountByNumber(user.accounts.brokerage.number);
 
-    const buy = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'jpm', side: 'BUY', quantity: 5 });
+    const buy = await api.post('/trade/orders', { account_id: brokerage.id, symbol, side: 'BUY', quantity });
     expect(buy.status()).toBe(201);
-    expect(await buy.json()).toMatchObject({ symbol: 'JPM', side: 'BUY', quantity: 5, price: 205.6, total: 1028, status: 'FILLED' });
+    expect(await buy.json()).toMatchObject({ ...expected, side: 'BUY', quantity, status: 'FILLED' });
     let p = await api.portfolio(brokerage.id);
-    expect(p.holdings.find((h) => h.symbol === 'JPM')?.quantity).toBe(5);
-    expect(p.cash).toBe(cents(users.demo.accounts.brokerage.balance - 1028));
+    expect(p.holdings.find((h) => h.symbol === expected.symbol)?.quantity).toBe(quantity);
+    expect(p.cash).toBe(cents(seedCash - expected.total));
 
-    const sell = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'JPM', side: 'SELL', quantity: 5 });
+    const sell = await api.post('/trade/orders', { account_id: brokerage.id, symbol: expected.symbol, side: 'SELL', quantity });
     expect(sell.status()).toBe(201);
     p = await api.portfolio(brokerage.id);
-    expect(p.holdings.find((h) => h.symbol === 'JPM')).toBeUndefined();
-    expect(p.cash).toBe(users.demo.accounts.brokerage.balance);
+    expect(p.holdings.find((h) => h.symbol === expected.symbol)).toBeUndefined();
+    expect(p.cash).toBe(seedCash);
 
     const orders = await (await api.get('/trade/orders', { account_id: brokerage.id })).json();
     expect(orders.map((o: { side: string }) => o.side)).toEqual(['SELL', 'BUY']);
   });
 
-  test('buy updates the average cost', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
-    await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'AAPL', side: 'BUY', quantity: 25 });
-    const aapl = (await api.portfolio(brokerage.id)).holdings.find((h) => h.symbol === 'AAPL')!;
-    expect(aapl.quantity).toBe(50);
-    expect(aapl.avg_cost).toBeCloseTo((170.25 + 189.84) / 2, 4);
+  test('buy updates the average cost', async ({ api, user }) => {
+    const { symbol, quantity } = data.averageCost;
+    const held = user.holdings[symbol];
+    const brokerage = await api.accountByNumber(user.accounts.brokerage.number);
+    await api.post('/trade/orders', { account_id: brokerage.id, symbol, side: 'BUY', quantity });
+
+    const holding = (await api.portfolio(brokerage.id)).holdings.find((h) => h.symbol === symbol)!;
+    expect(holding.quantity).toBe(held.quantity + quantity);
+    const expectedAvg = (held.quantity * held.avgCost + quantity * quotes[symbol].price) / (held.quantity + quantity);
+    expect(holding.avg_cost).toBeCloseTo(expectedAvg, 4);
   });
 
-  test('insufficient funds is 400', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
-    const res = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'MSFT', side: 'BUY', quantity: 100 });
-    expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('Insufficient funds');
-  });
-
-  test('selling more than owned is 400', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
-    const res = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'AAPL', side: 'SELL', quantity: 26 });
-    expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('Insufficient shares: you own 25 AAPL');
-  });
-
-  test('trading from a checking account is 400', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const res = await api.post('/trade/orders', { account_id: checking.id, symbol: 'AAPL', side: 'BUY', quantity: 1 });
-    expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('Trading is only available in brokerage accounts');
-  });
-
-  test('unknown symbol is 404', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
-    const res = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'ZZZZ', side: 'BUY', quantity: 1 });
-    expect(res.status()).toBe(404);
-  });
-
-  for (const quantity of [0, -1, 100_001]) {
-    test(`quantity ${quantity} is 422`, async ({ api }) => {
-      const brokerage = await api.accountByType('BROKERAGE');
-      const res = await api.post('/trade/orders', { account_id: brokerage.id, symbol: 'AAPL', side: 'BUY', quantity });
-      expect(res.status()).toBe(422);
+  for (const { scenario, input, expected } of data.rejectedOrders) {
+    test(scenario, async ({ api, user }) => {
+      const account = await api.accountByNumber(accountOf(user, input.account).number);
+      const res = await api.post('/trade/orders', {
+        account_id: account.id,
+        symbol: input.symbol,
+        side: input.side,
+        quantity: input.quantity,
+      });
+      expect(res.status()).toBe(expected.status);
+      if (expected.error) expect((await res.json()).detail).toBe(expected.error);
     });
   }
 });

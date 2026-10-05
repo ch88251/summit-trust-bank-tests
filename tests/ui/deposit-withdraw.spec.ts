@@ -1,68 +1,82 @@
-import { expect, test } from '../../src/fixtures';
-import { MAX_DEPOSIT, users } from '../../src/data/testData';
-import { cents, currency } from '../../src/utils/format';
+import { cents, currency, expect, loadData, test, type CashTransactionInput, type Scenario } from '@framework';
 
-const { checking, savings, brokerage } = users.demo.accounts;
+type CashInput = CashTransactionInput & { account: string; amount: string };
+
+const data = loadData<{
+  maxDeposit: number;
+  deposit: CashInput;
+  withdrawal: CashInput;
+  depositAtLimit: CashInput;
+  withdrawalOverBalance: CashTransactionInput & { account: string };
+  nonCashAccount: string;
+  invalidTransactions: Scenario<CashTransactionInput, { error: string }>[];
+  messages: { overBalance: string };
+}>('cash');
 
 test.describe('Deposit & withdraw', () => {
-  test.beforeEach(async ({ transferPayPage }) => {
-    await transferPayPage.goto('deposit');
+  test.beforeEach(async ({ flows }) => {
+    await flows.transferPay.openTransferPay('deposit');
   });
 
-  test('deposits funds into checking', async ({ api, transferPayPage }) => {
-    await transferPayPage.cashTransaction('DEPOSIT', checking.nickname, '1500.00', 'Bonus');
+  test('deposits funds', async ({ api, flows, transferPayPage: { cash }, user }) => {
+    const input = data.deposit;
+    const account = user.accounts[input.account];
+    const amount = Number(input.amount);
+    await flows.transferPay.cashTransaction(input);
 
-    await expect(transferPayPage.cashSuccess).toContainText(`Deposit of $1,500.00 to ${checking.nickname}`);
-    const confirmation = (await transferPayPage.cashConfirmation.textContent())!;
+    await expect(cash.success).toContainText(`Deposit of ${currency(amount)} to ${account.nickname}`);
+    const confirmation = (await cash.confirmation.textContent())!;
     expect(confirmation).toMatch(/^DEP-[0-9A-F]{8}$/);
-    await expect(transferPayPage.cashRow(confirmation)).toContainText('+$1,500.00');
+    await expect(cash.row(confirmation)).toContainText(`+${currency(amount)}`);
 
-    expect((await api.accountByType('CHECKING')).balance).toBe(cents(checking.balance + 1500));
+    expect((await api.accountByNumber(account.number)).balance).toBe(cents(account.balance + amount));
   });
 
-  test('withdraws funds from savings', async ({ api, transferPayPage }) => {
-    await transferPayPage.cashTransaction('WITHDRAWAL', savings.nickname, '44.42');
+  test('withdraws funds', async ({ api, flows, transferPayPage: { cash }, user }) => {
+    const input = data.withdrawal;
+    const account = user.accounts[input.account];
+    const amount = Number(input.amount);
+    await flows.transferPay.cashTransaction(input);
 
-    await expect(transferPayPage.cashSuccess).toContainText(`Withdrawal of $44.42 from ${savings.nickname}`);
-    const confirmation = (await transferPayPage.cashConfirmation.textContent())!;
+    await expect(cash.success).toContainText(`Withdrawal of ${currency(amount)} from ${account.nickname}`);
+    const confirmation = (await cash.confirmation.textContent())!;
     expect(confirmation).toMatch(/^WDL-[0-9A-F]{8}$/);
-    await expect(transferPayPage.cashRow(confirmation)).toContainText('−$44.42');
+    await expect(cash.row(confirmation)).toContainText(`−${currency(amount)}`);
 
-    expect((await api.accountByType('SAVINGS')).balance).toBe(cents(savings.balance - 44.42));
+    expect((await api.accountByNumber(account.number)).balance).toBe(cents(account.balance - amount));
   });
 
-  test('submit button and hint reflect the transaction type', async ({ transferPayPage }) => {
-    await expect(transferPayPage.cashSubmit).toHaveText('Deposit Funds');
-    await expect(transferPayPage.tabPanel('deposit')).toContainText(`Maximum ${currency(MAX_DEPOSIT)} per deposit.`);
+  test('submit button and hint reflect the transaction type', async ({ flows, transferPayPage }) => {
+    const { cash } = transferPayPage;
+    await expect(cash.submit).toHaveText('Deposit Funds');
+    await expect(transferPayPage.tabPanel('deposit')).toContainText(`Maximum ${currency(data.maxDeposit)} per deposit.`);
 
-    await transferPayPage.cashWithdraw.click();
-    await expect(transferPayPage.cashSubmit).toHaveText('Withdraw Funds');
-    await transferPayPage.cashAccount.selectOption({ index: 1 });
+    await flows.transferPay.selectCashType('WITHDRAWAL');
+    await expect(cash.submit).toHaveText('Withdraw Funds');
+    await cash.account.selectOption({ index: 1 });
     await expect(transferPayPage.tabPanel('deposit')).toContainText('Available balance:');
   });
 
-  test('brokerage accounts are not offered', async ({ transferPayPage }) => {
-    await expect(transferPayPage.cashAccount.locator('option', { hasText: brokerage.nickname })).toHaveCount(0);
+  test('brokerage accounts are not offered', async ({ transferPayPage: { cash }, user }) => {
+    await expect(cash.accountOptions.filter({ hasText: user.accounts[data.nonCashAccount].nickname })).toHaveCount(0);
   });
 
-  test('rejects deposits over the per-transaction limit', async ({ transferPayPage }) => {
-    await transferPayPage.cashTransaction('DEPOSIT', checking.nickname, '10000.01');
-    await expect(transferPayPage.cashError).toHaveText('Deposits are limited to $10,000.00 per transaction.');
+  test('allows a deposit exactly at the limit', async ({ flows, transferPayPage: { cash } }) => {
+    await flows.transferPay.cashTransaction(data.depositAtLimit);
+    await expect(cash.success).toContainText(`Deposit of ${currency(Number(data.depositAtLimit.amount))}`);
   });
 
-  test('allows a deposit exactly at the limit', async ({ transferPayPage }) => {
-    await transferPayPage.cashTransaction('DEPOSIT', checking.nickname, '10000');
-    await expect(transferPayPage.cashSuccess).toContainText('Deposit of $10,000.00');
+  test('rejects withdrawals over the balance', async ({ flows, transferPayPage: { cash }, user }) => {
+    const input = data.withdrawalOverBalance;
+    const { balance } = user.accounts[input.account];
+    await flows.transferPay.cashTransaction({ ...input, amount: String(cents(balance + 0.01)) });
+    await expect(cash.error).toHaveText(data.messages.overBalance);
   });
 
-  test('rejects withdrawals over the balance', async ({ transferPayPage }) => {
-    await transferPayPage.cashTransaction('WITHDRAWAL', checking.nickname, String(checking.balance + 0.01));
-    await expect(transferPayPage.cashError).toHaveText('Amount exceeds the available balance.');
-  });
-
-  test('requires an account', async ({ transferPayPage }) => {
-    await transferPayPage.cashAmount.fill('10');
-    await transferPayPage.cashSubmit.click();
-    await expect(transferPayPage.cashError).toHaveText('Please select an account.');
-  });
+  for (const { scenario, input, expected } of data.invalidTransactions) {
+    test(scenario, async ({ flows, transferPayPage: { cash } }) => {
+      await flows.transferPay.cashTransaction(input);
+      await expect(cash.error).toHaveText(expected.error);
+    });
+  }
 });

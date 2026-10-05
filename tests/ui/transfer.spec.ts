@@ -1,70 +1,64 @@
-import { expect, test } from '../../src/fixtures';
-import { users } from '../../src/data/testData';
-import { cents, currency, uniqueId } from '../../src/utils/format';
+import { cents, currency, expect, loadData, test, uniqueId, type Scenario, type TransferInput } from '@framework';
 
-const { checking, savings } = users.demo.accounts;
+const data = loadData<{
+  successfulTransfer: Scenario<TransferInput, { message: string }>;
+  dropdownRefresh: TransferInput & { from: string; amount: string };
+  invalidTransfers: Scenario<TransferInput, { error: string }>[];
+}>('transfers');
 
 test.describe('Transfer funds', () => {
-  test.beforeEach(async ({ transferPayPage }) => {
-    await transferPayPage.goto('transfer');
+  test.beforeEach(async ({ flows }) => {
+    await flows.transferPay.openTransferPay('transfer');
   });
 
-  test('transfers money between own accounts', async ({ api, transferPayPage }) => {
-    const memo = `Rainy day ${uniqueId()}`;
-    await transferPayPage.transfer(checking.nickname, savings.nickname, '250.75', memo);
+  test(data.successfulTransfer.scenario, async ({ api, flows, transferPayPage: { transfer }, user }) => {
+    const { input, expected } = data.successfulTransfer;
+    const memo = `${input.memo} ${uniqueId()}`;
+    const amount = Number(input.amount);
+    const fromSeed = user.accounts[input.from!];
+    const toSeed = user.accounts[input.to!];
 
-    await expect(transferPayPage.transferSuccess).toContainText('Transfer of $250.75 completed.');
-    const confirmation = (await transferPayPage.transferConfirmation.textContent())!;
+    await flows.transferPay.transfer({ ...input, memo });
+
+    await expect(transfer.success).toContainText(expected.message);
+    const confirmation = (await transfer.confirmation.textContent())!;
     expect(confirmation).toMatch(/^TRF-[0-9A-F]{8}$/);
-    await expect(transferPayPage.transferRow(confirmation)).toContainText('$250.75');
+    await expect(transfer.row(confirmation)).toContainText(currency(amount));
 
     // Form resets after success
-    await expect(transferPayPage.transferAmount).toHaveValue('');
-    await expect(transferPayPage.transferFrom).toHaveValue('');
+    await expect(transfer.amount).toHaveValue('');
+    await expect(transfer.from).toHaveValue('');
 
     // Balances and ledger updated
-    const from = await api.accountByType('CHECKING');
-    const to = await api.accountByType('SAVINGS');
-    expect(from.balance).toBe(cents(checking.balance - 250.75));
-    expect(to.balance).toBe(cents(savings.balance + 250.75));
+    const from = await api.accountByNumber(fromSeed.number);
+    const to = await api.accountByNumber(toSeed.number);
+    expect(from.balance).toBe(cents(fromSeed.balance - amount));
+    expect(to.balance).toBe(cents(toSeed.balance + amount));
     const [latest] = await api.transactions(from.id);
-    expect(latest).toMatchObject({ category: 'TRANSFER', amount: -250.75 });
+    expect(latest).toMatchObject({ category: 'TRANSFER', amount: -amount });
     expect(latest.description).toContain(memo);
   });
 
-  test('updated balances appear in the account dropdowns', async ({ transferPayPage }) => {
-    await transferPayPage.transfer(checking.nickname, savings.nickname, '100');
-    await expect(transferPayPage.transferSuccess).toBeVisible();
-    await expect(transferPayPage.transferFrom.locator('option', { hasText: checking.nickname })).toContainText(
-      currency(cents(checking.balance - 100)),
+  test('updated balances appear in the account dropdowns', async ({ flows, transferPayPage: { transfer }, user }) => {
+    const input = data.dropdownRefresh;
+    const from = user.accounts[input.from];
+    await flows.transferPay.transfer(input);
+    await expect(transfer.success).toBeVisible();
+    await expect(transfer.fromOptions.filter({ hasText: from.nickname })).toContainText(
+      currency(cents(from.balance - Number(input.amount))),
     );
   });
 
-  test('excludes the From account from the To list', async ({ transferPayPage }) => {
-    await transferPayPage.transferFrom.locator('option', { hasText: checking.nickname }).waitFor({ state: 'attached' });
-    const fromValue = await transferPayPage.transferFrom.locator('option', { hasText: checking.nickname }).getAttribute('value');
-    await transferPayPage.transferFrom.selectOption(fromValue!);
-    await expect(transferPayPage.transferTo.locator(`option[value="${fromValue}"]`)).toHaveCount(0);
+  test('excludes the From account from the To list', async ({ flows, transferPayPage: { transfer }, user }) => {
+    await flows.transferPay.fillTransfer({ from: 'checking' });
+    await expect(transfer.toOptions.filter({ hasText: user.accounts.checking.nickname })).toHaveCount(0);
   });
 
-  const invalid: Array<[string, string, string]> = [
-    ['', 'empty amount', 'Please enter an amount.'],
-    ['abc', 'non-numeric amount', 'Enter a valid amount (up to 2 decimal places).'],
-    ['10.123', 'more than 2 decimals', 'Enter a valid amount (up to 2 decimal places).'],
-    ['0', 'zero amount', 'Amount must be greater than $0.00.'],
-    ['999999', 'amount over balance', 'Amount exceeds the available balance.'],
-  ];
-  for (const [amount, name, message] of invalid) {
-    test(`validates ${name}`, async ({ transferPayPage }) => {
-      await transferPayPage.transfer(checking.nickname, savings.nickname, amount);
-      await expect(transferPayPage.transferError).toHaveText(message);
-      await expect(transferPayPage.transferSuccess).toBeHidden();
+  for (const { scenario, input, expected } of data.invalidTransfers) {
+    test(`validates ${scenario}`, async ({ flows, transferPayPage: { transfer } }) => {
+      await flows.transferPay.transfer(input);
+      await expect(transfer.error).toHaveText(expected.error);
+      await expect(transfer.success).toBeHidden();
     });
   }
-
-  test('requires both accounts', async ({ transferPayPage }) => {
-    await transferPayPage.transferAmount.fill('10');
-    await transferPayPage.transferSubmit.click();
-    await expect(transferPayPage.transferError).toHaveText('Please select both a From and To account.');
-  });
 });

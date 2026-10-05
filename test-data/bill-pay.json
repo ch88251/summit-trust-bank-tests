@@ -1,0 +1,30 @@
+{
+  "payBill": {
+    "scenario": "pays a bill from checking",
+    "input": { "from": "checking", "payee": "City Electric", "amount": "96.40", "memo": "October bill" },
+    "expected": { "message": "Payment of $96.40 to City Electric sent.", "ledgerDescription": "Bill Pay - City Electric" }
+  },
+  "nonPayingAccount": "brokerage",
+  "invalidPayments": [
+    {
+      "scenario": "requires an account",
+      "input": {},
+      "expected": { "error": "Please select an account to pay from." }
+    },
+    {
+      "scenario": "requires a payee",
+      "input": { "from": "checking" },
+      "expected": { "error": "Please select a payee." }
+    },
+    {
+      "scenario": "rejects payments over the balance",
+      "input": { "from": "checking", "payee": "Metro Water", "amount": "50000" },
+      "expected": { "error": "Amount exceeds the available balance." }
+    }
+  ],
+  "api": {
+    "payment": { "from": "checking", "payee": "Metro Water", "amount": "54.20" },
+    "nonPayingAccount": { "from": "brokerage", "amount": "1" },
+    "unknownPayeeId": 999999
+  }
+}

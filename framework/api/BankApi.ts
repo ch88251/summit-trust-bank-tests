@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
-import type { AccountType } from '../data/testData';
+import type { AccountType } from '../data/types';
 
 export interface User {
   id: number;
@@ -113,6 +113,12 @@ export class BankApi {
   async accountByType(type: AccountType) {
     const account = (await this.accounts()).find((a) => a.account_type === type);
     if (!account) throw new Error(`No ${type} account for the current user`);
+    return account;
+  }
+
+  async accountByNumber(accountNumber: string) {
+    const account = (await this.accounts()).find((a) => a.account_number === accountNumber);
+    if (!account) throw new Error(`No account ${accountNumber} for the current user`);
     return account;
   }
 

@@ -1,25 +1,31 @@
-import { expect, test } from '../../src/fixtures';
-import { users } from '../../src/data/testData';
+import { expect, getUser, loadData, test, type Credentials, type Scenario } from '@framework';
+
+const data = loadData<{
+  demoCredentialsHint: string;
+  loginAs: string[];
+  usernameNormalization: { username: string; user: string };
+  invalidCredentials: Scenario<Credentials>[];
+  messages: { invalidCredentials: string; missingCredentials: string; loggedOut: string };
+}>('auth');
 
 test.describe('Login', () => {
-  // These tests start logged out.
-  test.use({ storageState: { cookies: [], origins: [] } });
+  test.use({ loggedInAs: null });
 
-  test.beforeEach(async ({ loginPage }) => {
-    await loginPage.goto();
+  test.beforeEach(async ({ flows }) => {
+    await flows.auth.openLogin();
   });
 
   test('shows the login form and demo credentials', async ({ loginPage, header }) => {
     await expect(loginPage.form).toBeVisible();
     await expect(loginPage.username).toBeFocused();
-    await expect(loginPage.demoCredentials).toContainText('demo / Demo@123');
+    await expect(loginPage.demoCredentials).toContainText(data.demoCredentialsHint);
     await expect(header.navLogin).toBeVisible();
   });
 
-  for (const key of ['demo', 'jane'] as const) {
-    test(`logs in as ${key} and lands on accounts`, async ({ page, loginPage, accountsPage, header }) => {
-      const user = users[key];
-      await loginPage.login(user.username, user.password);
+  for (const key of data.loginAs) {
+    test(`logs in as ${key} and lands on accounts`, async ({ page, flows, accountsPage, header }) => {
+      const user = getUser(key);
+      await flows.auth.login(user);
 
       await expect(page).toHaveURL(/\/accounts$/);
       await expect(accountsPage.welcomeMessage).toHaveText(`Welcome back, ${user.fullName.split(' ')[0]}`);
@@ -27,29 +33,26 @@ test.describe('Login', () => {
     });
   }
 
-  test('username is case-insensitive and trimmed', async ({ page, loginPage }) => {
-    await loginPage.login('  DEMO  ', users.demo.password);
+  test('username is case-insensitive and trimmed', async ({ page, flows }) => {
+    const { username, user } = data.usernameNormalization;
+    await flows.auth.login({ username, password: getUser(user).password });
     await expect(page).toHaveURL(/\/accounts$/);
   });
 
-  test('rejects an invalid password', async ({ page, loginPage }) => {
-    await loginPage.login(users.demo.username, 'wrong-password');
-    await expect(loginPage.error).toHaveText('Invalid username or password');
-    await expect(page).toHaveURL(/\/login$/);
-  });
+  for (const { scenario, input } of data.invalidCredentials) {
+    test(`rejects ${scenario}`, async ({ page, flows, loginPage }) => {
+      await flows.auth.login(input);
+      await expect(loginPage.error).toHaveText(data.messages.invalidCredentials);
+      await expect(page).toHaveURL(/\/login$/);
+    });
+  }
 
-  test('rejects an unknown user', async ({ loginPage }) => {
-    await loginPage.login('nobody', 'whatever');
-    await expect(loginPage.error).toHaveText('Invalid username or password');
-  });
+  test('requires both username and password', async ({ flows, loginPage, user }) => {
+    await flows.auth.login({});
+    await expect(loginPage.error).toHaveText(data.messages.missingCredentials);
 
-  test('requires both username and password', async ({ loginPage }) => {
-    await loginPage.submit.click();
-    await expect(loginPage.error).toHaveText('Please enter your username and password.');
-
-    await loginPage.username.fill(users.demo.username);
-    await loginPage.submit.click();
-    await expect(loginPage.error).toHaveText('Please enter your username and password.');
+    await flows.auth.login({ username: user.username });
+    await expect(loginPage.error).toHaveText(data.messages.missingCredentials);
   });
 
   test('toggles password visibility', async ({ loginPage }) => {
@@ -62,22 +65,25 @@ test.describe('Login', () => {
     await expect(loginPage.password).toHaveAttribute('type', 'password');
   });
 
-  test('redirects protected pages to login and back after signing in', async ({ page, loginPage, tradePage }) => {
-    await page.goto('/trade');
+  test('redirects protected pages to login and back after signing in', async ({ page, flows, tradePage, user }) => {
+    await flows.trade.openTrade();
     await expect(page).toHaveURL(/\/login$/);
 
-    await loginPage.login(users.demo.username, users.demo.password);
+    await flows.auth.login(user);
     await expect(page).toHaveURL(/\/trade$/);
     await expect(tradePage.root).toBeVisible();
   });
 });
 
 test.describe('Logout', () => {
-  test('logs out from the profile menu', async ({ page, header, loginPage }) => {
-    await page.goto('/accounts');
-    await header.openProfileMenu();
+  test.beforeEach(async ({ flows }) => {
+    await flows.accounts.openAccounts();
+  });
+
+  test('logs out from the profile menu', async ({ page, flows, header, loginPage, user }) => {
+    await flows.auth.openProfileMenu();
     await expect(header.profileDropdown).toBeVisible();
-    await expect(header.profileEmail).toHaveText(users.demo.email);
+    await expect(header.profileEmail).toHaveText(user.email);
 
     await header.logoutButton.click();
 
@@ -85,29 +91,31 @@ test.describe('Logout', () => {
     await expect(loginPage.form).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('stb_token'))).toBeNull();
 
-    await page.goto('/accounts');
+    await flows.accounts.openAccounts();
     await expect(page).toHaveURL(/\/login$/);
   });
 
   // Known app bug: logout() clears the user before navigating, so the protected route's
   // <Navigate to="/login"> usually wins the race and drops the { loggedOut: true } state.
-  test.fixme('shows a logged-out confirmation message', async ({ page, header, loginPage }) => {
-    await page.goto('/accounts');
-    await header.logout();
-    await expect(loginPage.logoutMessage).toHaveText('You have been logged out successfully.');
+  test.fixme('shows a logged-out confirmation message', async ({ flows, loginPage }) => {
+    await flows.auth.logout();
+    await expect(loginPage.logoutMessage).toHaveText(data.messages.loggedOut);
   });
 
-  test('closes the profile menu with Escape', async ({ page, header }) => {
-    await page.goto('/accounts');
-    await header.openProfileMenu();
+  test('closes the profile menu with Escape', async ({ page, flows, header }) => {
+    await flows.auth.openProfileMenu();
     await expect(header.profileDropdown).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(header.profileDropdown).toBeHidden();
   });
+});
 
-  test('an invalid token sends the user back to login', async ({ page }) => {
+test.describe('Session', () => {
+  test.use({ loggedInAs: null });
+
+  test('an invalid token sends the user back to login', async ({ page, flows }) => {
     await page.addInitScript(() => localStorage.setItem('stb_token', 'not-a-real-token'));
-    await page.goto('/accounts');
+    await flows.accounts.openAccounts();
     await expect(page).toHaveURL(/\/login$/);
   });
 });

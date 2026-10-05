@@ -1,138 +1,127 @@
-import { expect, test } from '../../src/fixtures';
-import { quotes, users } from '../../src/data/testData';
-import { cents, currency } from '../../src/utils/format';
+import { cents, currency, expect, loadData, test, type OrderInput, type Scenario } from '@framework';
 
-const { brokerage } = users.demo.accounts;
+type Order = Required<Pick<OrderInput, 'side' | 'symbol'>> & { quantity: number };
+
+const { quotes } = loadData<{ quotes: Record<string, { name: string; price: number }> }>('market');
+const data = loadData<{
+  estimate: Order;
+  buyNewPosition: Scenario<Order, { reviewSide: string; total: string; cost: number; message: string; ledgerDescription: string }>;
+  addToPosition: Order;
+  partialSell: Scenario<Order, { message: string; proceeds: number }>;
+  sellAll: string;
+  editOrder: Order;
+  invalidOrders: Scenario<OrderInput, { error: string }>[];
+  noBrokerageUser: string;
+}>('trade');
 
 test.describe('Trade', () => {
-  test.beforeEach(async ({ tradePage }) => {
-    await tradePage.goto();
+  test.beforeEach(async ({ flows }) => {
+    await flows.trade.openTrade();
   });
 
-  test('shows portfolio summary for the brokerage account', async ({ api, tradePage }) => {
-    const portfolio = await api.portfolio((await api.accountByType('BROKERAGE')).id);
+  test('shows portfolio summary for the brokerage account', async ({ api, tradePage, user }) => {
+    const { brokerage } = user.accounts;
+    const portfolio = await api.portfolio((await api.accountByNumber(brokerage.number)).id);
 
     await expect(tradePage.accountSelect).toContainText(brokerage.nickname);
     await expect(tradePage.cash).toHaveText(currency(brokerage.balance));
     await expect(tradePage.holdingsValue).toHaveText(currency(portfolio.holdings_value));
     await expect(tradePage.totalValue).toHaveText(currency(portfolio.total_value));
-    for (const [symbol, qty] of Object.entries(users.demo.holdings)) {
-      await expect(tradePage.holdingQuantity(symbol)).toHaveText(String(qty));
+    for (const [symbol, { quantity }] of Object.entries(user.holdings)) {
+      await expect(tradePage.holdingQuantity(symbol)).toHaveText(String(quantity));
     }
     await expect(tradePage.noOrders).toBeVisible();
   });
 
   test('lists market quotes', async ({ tradePage }) => {
     for (const [symbol, quote] of Object.entries(quotes)) {
-      await expect(tradePage.quoteRow(symbol).getByTestId('quote-price')).toHaveText(currency(quote.price));
+      await expect(tradePage.quotePrice(symbol)).toHaveText(currency(quote.price));
     }
   });
 
-  test('updates the estimate as the order changes', async ({ tradePage }) => {
-    await expect(tradePage.estimate).toHaveText('$0.00');
-    await tradePage.fillOrder('BUY', 'NVDA', 3);
-    await expect(tradePage.estimate).toHaveText(currency(cents(quotes.NVDA.price * 3)));
+  test('updates the estimate as the order changes', async ({ flows, tradePage }) => {
+    const order = data.estimate;
+    await expect(tradePage.estimate).toHaveText(currency(0));
+    await flows.trade.fillOrder(order);
+    await expect(tradePage.estimate).toHaveText(currency(cents(quotes[order.symbol].price * order.quantity)));
   });
 
-  test('buys a new position', async ({ api, tradePage }) => {
-    await tradePage.fillOrder('BUY', 'NVDA', 10);
-    await tradePage.reviewButton.click();
+  test(data.buyNewPosition.scenario, async ({ api, flows, tradePage, user }) => {
+    const { input, expected } = data.buyNewPosition;
+    await flows.trade.reviewOrder(input);
 
-    await expect(tradePage.reviewSide).toHaveText('Buy');
-    await expect(tradePage.reviewSymbol).toHaveText('NVDA');
-    await expect(tradePage.reviewQuantity).toHaveText('10');
-    await expect(tradePage.reviewTotal).toHaveText('$1,214.00');
+    await expect(tradePage.reviewSide).toHaveText(expected.reviewSide);
+    await expect(tradePage.reviewSymbol).toHaveText(input.symbol);
+    await expect(tradePage.reviewQuantity).toHaveText(String(input.quantity));
+    await expect(tradePage.reviewTotal).toHaveText(expected.total);
 
     await tradePage.placeButton.click();
-    await expect(tradePage.orderSuccess).toContainText('Order filled: Bought 10 NVDA @ $121.40 for $1,214.00.');
+    await expect(tradePage.orderSuccess).toContainText(expected.message);
     const confirmation = (await tradePage.orderConfirmation.textContent())!;
     expect(confirmation).toMatch(/^ORD-[0-9A-F]{8}$/);
 
-    await expect(tradePage.holdingQuantity('NVDA')).toHaveText('10');
-    await expect(tradePage.cash).toHaveText(currency(brokerage.balance - 1214));
-    await expect(tradePage.orderRow(confirmation)).toContainText('BUY');
+    await expect(tradePage.holdingQuantity(input.symbol)).toHaveText(String(input.quantity));
+    await expect(tradePage.cash).toHaveText(currency(user.accounts.brokerage.balance - expected.cost));
+    await expect(tradePage.orderRow(confirmation)).toContainText(input.side);
     await expect(tradePage.orderRow(confirmation)).toContainText('FILLED');
 
-    const account = await api.accountByType('BROKERAGE');
+    const account = await api.accountByNumber(user.accounts.brokerage.number);
     const [latest] = await api.transactions(account.id, 'TRADE');
-    expect(latest).toMatchObject({ description: 'Buy 10 NVDA @ 121.40', amount: -1214 });
+    expect(latest).toMatchObject({ description: expected.ledgerDescription, amount: -expected.cost });
   });
 
-  test('adds to an existing position', async ({ tradePage }) => {
-    await tradePage.placeOrder('BUY', 'AAPL', 5);
-    await expect(tradePage.holdingQuantity('AAPL')).toHaveText(String(users.demo.holdings.AAPL + 5));
+  test('adds to an existing position', async ({ flows, tradePage, user }) => {
+    const order = data.addToPosition;
+    await flows.trade.placeOrder(order);
+    await expect(tradePage.holdingQuantity(order.symbol)).toHaveText(String(user.holdings[order.symbol].quantity + order.quantity));
   });
 
-  test('partially sells a position', async ({ tradePage }) => {
-    await tradePage.fillOrder('SELL', 'MSFT', 4);
-    await expect(tradePage.ticket).toContainText(`You own ${users.demo.holdings.MSFT} shares`);
+  test(data.partialSell.scenario, async ({ flows, tradePage, user }) => {
+    const { input, expected } = data.partialSell;
+    const owned = user.holdings[input.symbol].quantity;
+    await flows.trade.fillOrder(input);
+    await expect(tradePage.ticket).toContainText(`You own ${owned} shares`);
     await tradePage.reviewButton.click();
     await tradePage.placeButton.click();
 
-    await expect(tradePage.orderSuccess).toContainText('Sold 4 MSFT @ $415.50 for $1,662.00.');
-    await expect(tradePage.holdingQuantity('MSFT')).toHaveText('6');
-    await expect(tradePage.cash).toHaveText(currency(brokerage.balance + 1662));
+    await expect(tradePage.orderSuccess).toContainText(expected.message);
+    await expect(tradePage.holdingQuantity(input.symbol)).toHaveText(String(owned - input.quantity));
+    await expect(tradePage.cash).toHaveText(currency(user.accounts.brokerage.balance + expected.proceeds));
   });
 
-  test('selling all shares removes the holding', async ({ tradePage }) => {
-    await tradePage.placeOrder('SELL', 'VTI', users.demo.holdings.VTI);
-    await expect(tradePage.holdingRow('VTI')).toHaveCount(0);
+  test('selling all shares removes the holding', async ({ flows, tradePage, user }) => {
+    const symbol = data.sellAll;
+    await flows.trade.placeOrder({ side: 'SELL', symbol, quantity: user.holdings[symbol].quantity });
+    await expect(tradePage.holdingRow(symbol)).toHaveCount(0);
   });
 
-  test('Edit returns to the order form with values kept', async ({ tradePage }) => {
-    await tradePage.fillOrder('BUY', 'TSLA', 2);
-    await tradePage.reviewButton.click();
+  test('Edit returns to the order form with values kept', async ({ flows, tradePage }) => {
+    const order = data.editOrder;
+    await flows.trade.reviewOrder(order);
     await tradePage.editButton.click();
 
     await expect(tradePage.orderForm).toBeVisible();
-    await expect(tradePage.symbol).toHaveValue('TSLA');
-    await expect(tradePage.quantity).toHaveValue('2');
+    await expect(tradePage.symbol).toHaveValue(order.symbol);
+    await expect(tradePage.quantity).toHaveValue(String(order.quantity));
     await expect(tradePage.noOrders).toBeVisible();
   });
 
   test.describe('validation', () => {
-    test('requires a symbol', async ({ tradePage }) => {
-      await tradePage.reviewButton.click();
-      await expect(tradePage.orderError).toHaveText('Please select a symbol.');
-    });
-
-    for (const qty of ['0', '-1', '1.5']) {
-      test(`rejects quantity ${qty}`, async ({ tradePage }) => {
-        await tradePage.fillOrder('BUY', 'AAPL', qty);
-        await tradePage.reviewButton.click();
-        await expect(tradePage.orderError).toHaveText('Quantity must be a whole number greater than 0.');
+    for (const { scenario, input, expected } of data.invalidOrders) {
+      test(scenario, async ({ flows, tradePage }) => {
+        await flows.trade.reviewOrder(input);
+        await expect(tradePage.orderError).toHaveText(expected.error);
+        await expect(tradePage.reviewPanel).toBeHidden();
       });
     }
-
-    test('rejects buys over available cash', async ({ tradePage }) => {
-      await tradePage.fillOrder('BUY', 'MSFT', 100);
-      await tradePage.reviewButton.click();
-      await expect(tradePage.orderError).toHaveText('Insufficient cash for this order.');
-      await expect(tradePage.reviewPanel).toBeHidden();
-    });
-
-    test('rejects selling more shares than owned', async ({ tradePage }) => {
-      await tradePage.fillOrder('SELL', 'AAPL', users.demo.holdings.AAPL + 1);
-      await tradePage.reviewButton.click();
-      await expect(tradePage.orderError).toHaveText(`You only own ${users.demo.holdings.AAPL} shares of AAPL.`);
-    });
-
-    test('rejects selling a symbol not owned', async ({ tradePage }) => {
-      await tradePage.fillOrder('SELL', 'TSLA', 1);
-      await tradePage.reviewButton.click();
-      await expect(tradePage.orderError).toHaveText('You only own 0 shares of TSLA.');
-    });
   });
 });
 
 test.describe('Trade without a brokerage account', () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
+  test.use({ loggedInAs: data.noBrokerageUser });
 
-  test('shows the no-brokerage message', async ({ page, loginPage, tradePage }) => {
-    await loginPage.goto();
-    await loginPage.login(users.jane.username, users.jane.password);
-    await page.waitForURL(/\/accounts$/);
-    await tradePage.goto();
+  test('shows the no-brokerage message', async ({ flows, tradePage }) => {
+    await flows.trade.openTrade();
     await expect(tradePage.noBrokerage).toContainText('No brokerage account');
   });
 });

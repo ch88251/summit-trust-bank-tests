@@ -1,0 +1,46 @@
+{
+  "successfulTransfer": {
+    "scenario": "transfers money between own accounts",
+    "input": { "from": "checking", "to": "savings", "amount": "250.75", "memo": "Rainy day" },
+    "expected": { "message": "Transfer of $250.75 completed." }
+  },
+  "dropdownRefresh": { "from": "checking", "to": "savings", "amount": "100" },
+  "invalidTransfers": [
+    {
+      "scenario": "empty amount",
+      "input": { "from": "checking", "to": "savings", "amount": "" },
+      "expected": { "error": "Please enter an amount." }
+    },
+    {
+      "scenario": "non-numeric amount",
+      "input": { "from": "checking", "to": "savings", "amount": "abc" },
+      "expected": { "error": "Enter a valid amount (up to 2 decimal places)." }
+    },
+    {
+      "scenario": "more than 2 decimals",
+      "input": { "from": "checking", "to": "savings", "amount": "10.123" },
+      "expected": { "error": "Enter a valid amount (up to 2 decimal places)." }
+    },
+    {
+      "scenario": "zero amount",
+      "input": { "from": "checking", "to": "savings", "amount": "0" },
+      "expected": { "error": "Amount must be greater than $0.00." }
+    },
+    {
+      "scenario": "amount over balance",
+      "input": { "from": "checking", "to": "savings", "amount": "999999" },
+      "expected": { "error": "Amount exceeds the available balance." }
+    },
+    {
+      "scenario": "missing accounts",
+      "input": { "amount": "10" },
+      "expected": { "error": "Please select both a From and To account." }
+    }
+  ],
+  "api": {
+    "transfer": { "from": "checking", "to": "savings", "amount": "123.45", "memo": "api test" },
+    "sameAccount": { "account": "checking", "amount": "1", "error": "From and To accounts must be different" },
+    "insufficientFunds": { "from": "checking", "to": "savings", "amount": "99999.00", "error": "Insufficient funds" },
+    "invalidAmounts": ["0", "-5", "1.234"]
+  }
+}

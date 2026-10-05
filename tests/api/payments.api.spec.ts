@@ -1,88 +1,121 @@
-import { expect, test } from '../../src/fixtures';
-import { users } from '../../src/data/testData';
-import { cents, uniqueId } from '../../src/utils/format';
+import { accountOf, cents, expect, loadData, test, uniqueId, type BankApi, type PayeeInput, type UserData } from '@framework';
 
-const seed = users.demo.accounts;
+const transfers = loadData<{
+  api: {
+    transfer: { from: string; to: string; amount: string; memo: string };
+    sameAccount: { account: string; amount: string; error: string };
+    insufficientFunds: { from: string; to: string; amount: string; error: string };
+    invalidAmounts: string[];
+  };
+}>('transfers').api;
+const cash = loadData<{
+  api: {
+    deposit: { account: string; amount: string };
+    withdrawal: { account: string; amount: string };
+    depositOverLimit: { account: string; amount: string; error: string };
+    nonCashAccount: { account: string; amount: string };
+  };
+}>('cash').api;
+const payees = loadData<{
+  api: { newPayee: Required<PayeeInput>; duplicate: PayeeInput; invalidAccountNumbers: string[] };
+}>('payees').api;
+const billPay = loadData<{
+  api: {
+    payment: { from: string; payee: string; amount: string };
+    nonPayingAccount: { from: string; amount: string };
+    unknownPayeeId: number;
+  };
+}>('bill-pay').api;
+
+/** The live account behind a users.json account alias. */
+const live = (api: BankApi, user: UserData, alias: string) => api.accountByNumber(accountOf(user, alias).number);
 
 test.describe('Transfers API', () => {
-  test('creates a transfer and posts both ledger entries', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const savings = await api.accountByType('SAVINGS');
+  test('creates a transfer and posts both ledger entries', async ({ api, user }) => {
+    const { from: fromAlias, to: toAlias, amount, memo } = transfers.transfer;
+    const from = await live(api, user, fromAlias);
+    const to = await live(api, user, toAlias);
+    const value = Number(amount);
 
-    const transfer = await api.transfer(checking.id, savings.id, '123.45', 'api test');
+    const transfer = await api.transfer(from.id, to.id, amount, memo);
     expect(transfer.confirmation_number).toMatch(/^TRF-[0-9A-F]{8}$/);
-    expect(transfer.amount).toBe(123.45);
+    expect(transfer.amount).toBe(value);
 
-    expect((await api.account(checking.id)).balance).toBe(cents(seed.checking.balance - 123.45));
-    expect((await api.account(savings.id)).balance).toBe(cents(seed.savings.balance + 123.45));
-    const [debit] = await api.transactions(checking.id, 'TRANSFER');
-    const [credit] = await api.transactions(savings.id, 'TRANSFER');
-    expect(debit.amount).toBe(-123.45);
-    expect(credit.amount).toBe(123.45);
+    expect((await api.account(from.id)).balance).toBe(cents(accountOf(user, fromAlias).balance - value));
+    expect((await api.account(to.id)).balance).toBe(cents(accountOf(user, toAlias).balance + value));
+    const [debit] = await api.transactions(from.id, 'TRANSFER');
+    const [credit] = await api.transactions(to.id, 'TRANSFER');
+    expect(debit.amount).toBe(-value);
+    expect(credit.amount).toBe(value);
 
     const history = await (await api.get('/transfers')).json();
     expect(history[0].confirmation_number).toBe(transfer.confirmation_number);
   });
 
-  test('same from/to account is 400', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const res = await api.post('/transfers', { from_account_id: checking.id, to_account_id: checking.id, amount: '1' });
+  test('same from/to account is 400', async ({ api, user }) => {
+    const { account: alias, amount, error } = transfers.sameAccount;
+    const account = await live(api, user, alias);
+    const res = await api.post('/transfers', { from_account_id: account.id, to_account_id: account.id, amount });
     expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('From and To accounts must be different');
+    expect((await res.json()).detail).toBe(error);
   });
 
-  test('insufficient funds is 400 and changes nothing', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const savings = await api.accountByType('SAVINGS');
-    const res = await api.post('/transfers', { from_account_id: checking.id, to_account_id: savings.id, amount: '99999.00' });
+  test('insufficient funds is 400 and changes nothing', async ({ api, user }) => {
+    const { from: fromAlias, to: toAlias, amount, error } = transfers.insufficientFunds;
+    const from = await live(api, user, fromAlias);
+    const to = await live(api, user, toAlias);
+    const res = await api.post('/transfers', { from_account_id: from.id, to_account_id: to.id, amount });
     expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('Insufficient funds');
-    expect((await api.account(checking.id)).balance).toBe(seed.checking.balance);
+    expect((await res.json()).detail).toBe(error);
+    expect((await api.account(from.id)).balance).toBe(accountOf(user, fromAlias).balance);
   });
 
-  for (const amount of ['0', '-5', '1.234']) {
-    test(`amount ${amount} is 422`, async ({ api }) => {
-      const checking = await api.accountByType('CHECKING');
-      const savings = await api.accountByType('SAVINGS');
-      const res = await api.post('/transfers', { from_account_id: checking.id, to_account_id: savings.id, amount });
+  for (const amount of transfers.invalidAmounts) {
+    test(`amount ${amount} is 422`, async ({ api, user }) => {
+      const from = await live(api, user, transfers.transfer.from);
+      const to = await live(api, user, transfers.transfer.to);
+      const res = await api.post('/transfers', { from_account_id: from.id, to_account_id: to.id, amount });
       expect(res.status()).toBe(422);
     });
   }
 });
 
 test.describe('Cash transactions API', () => {
-  test('deposit and withdrawal', async ({ api }) => {
-    const savings = await api.accountByType('SAVINGS');
-    const dep = await api.post('/cash-transactions', { account_id: savings.id, type: 'DEPOSIT', amount: '200.00' });
+  test('deposit and withdrawal', async ({ api, user }) => {
+    const account = await live(api, user, cash.deposit.account);
+    const dep = await api.post('/cash-transactions', { account_id: account.id, type: 'DEPOSIT', amount: cash.deposit.amount });
     expect(dep.status()).toBe(201);
     expect((await dep.json()).confirmation_number).toMatch(/^DEP-/);
 
-    const wdl = await api.post('/cash-transactions', { account_id: savings.id, type: 'WITHDRAWAL', amount: '50.00' });
+    const wdl = await api.post('/cash-transactions', { account_id: account.id, type: 'WITHDRAWAL', amount: cash.withdrawal.amount });
     expect(wdl.status()).toBe(201);
     expect((await wdl.json()).confirmation_number).toMatch(/^WDL-/);
 
-    expect((await api.account(savings.id)).balance).toBe(cents(seed.savings.balance + 150));
+    const net = Number(cash.deposit.amount) - Number(cash.withdrawal.amount);
+    expect((await api.account(account.id)).balance).toBe(cents(accountOf(user, cash.deposit.account).balance + net));
   });
 
-  test('deposit over $10,000 is 400', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const res = await api.post('/cash-transactions', { account_id: checking.id, type: 'DEPOSIT', amount: '10000.01' });
+  test('deposit over the limit is 400', async ({ api, user }) => {
+    const { account: alias, amount, error } = cash.depositOverLimit;
+    const account = await live(api, user, alias);
+    const res = await api.post('/cash-transactions', { account_id: account.id, type: 'DEPOSIT', amount });
     expect(res.status()).toBe(400);
-    expect((await res.json()).detail).toBe('Deposits are limited to $10,000.00 per transaction');
+    expect((await res.json()).detail).toBe(error);
   });
 
-  test('brokerage account is 400', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
-    const res = await api.post('/cash-transactions', { account_id: brokerage.id, type: 'DEPOSIT', amount: '1' });
+  test('brokerage account is 400', async ({ api, user }) => {
+    const account = await live(api, user, cash.nonCashAccount.account);
+    const res = await api.post('/cash-transactions', { account_id: account.id, type: 'DEPOSIT', amount: cash.nonCashAccount.amount });
     expect(res.status()).toBe(400);
   });
 });
 
 test.describe('Payees & payments API', () => {
   test('creates, lists and deletes a payee', async ({ api }) => {
-    const name = `Landlord ${uniqueId()}`;
-    const payee = await api.addPayee(name, '99887766', 'Rent');
-    expect(payee).toMatchObject({ name, account_number: '99887766', nickname: 'Rent' });
+    const { accountNumber, nickname } = payees.newPayee;
+    const name = `${payees.newPayee.name} ${uniqueId()}`;
+    const payee = await api.addPayee(name, accountNumber, nickname);
+    expect(payee).toMatchObject({ name, account_number: accountNumber, nickname });
     expect((await api.payees()).map((p) => p.name)).toContain(name);
 
     expect((await api.delete(`/payees/${payee.id}`)).status()).toBe(204);
@@ -91,37 +124,39 @@ test.describe('Payees & payments API', () => {
   });
 
   test('duplicate payee is 409', async ({ api }) => {
-    const res = await api.post('/payees', { name: 'CITY ELECTRIC', account_number: '88442211' });
+    const { name, accountNumber } = payees.duplicate;
+    const res = await api.post('/payees', { name, account_number: accountNumber });
     expect(res.status()).toBe(409);
   });
 
-  for (const account_number of ['123', '123456789012345678', '12ab']) {
+  for (const account_number of payees.invalidAccountNumbers) {
     test(`payee account number "${account_number}" is 422`, async ({ api }) => {
       expect((await api.post('/payees', { name: 'X', account_number })).status()).toBe(422);
     });
   }
 
-  test('pays a payee', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const payee = (await api.payees()).find((p) => p.name === 'Metro Water')!;
-    const res = await api.post('/payments', { from_account_id: checking.id, payee_id: payee.id, amount: '54.20' });
+  test('pays a payee', async ({ api, user }) => {
+    const { from: alias, payee: payeeName, amount } = billPay.payment;
+    const from = await live(api, user, alias);
+    const payee = (await api.payees()).find((p) => p.name === payeeName)!;
+    const res = await api.post('/payments', { from_account_id: from.id, payee_id: payee.id, amount });
     expect(res.status()).toBe(201);
     const payment = await res.json();
-    expect(payment).toMatchObject({ payee_name: 'Metro Water', amount: 54.2 });
+    expect(payment).toMatchObject({ payee_name: payeeName, amount: Number(amount) });
     expect(payment.confirmation_number).toMatch(/^PAY-/);
-    expect((await api.account(checking.id)).balance).toBe(cents(seed.checking.balance - 54.2));
+    expect((await api.account(from.id)).balance).toBe(cents(accountOf(user, alias).balance - Number(amount)));
   });
 
-  test('payment from brokerage is 400', async ({ api }) => {
-    const brokerage = await api.accountByType('BROKERAGE');
+  test('payment from brokerage is 400', async ({ api, user }) => {
+    const from = await live(api, user, billPay.nonPayingAccount.from);
     const payee = (await api.payees())[0];
-    const res = await api.post('/payments', { from_account_id: brokerage.id, payee_id: payee.id, amount: '1' });
+    const res = await api.post('/payments', { from_account_id: from.id, payee_id: payee.id, amount: billPay.nonPayingAccount.amount });
     expect(res.status()).toBe(400);
   });
 
-  test('payment to unknown payee is 404', async ({ api }) => {
-    const checking = await api.accountByType('CHECKING');
-    const res = await api.post('/payments', { from_account_id: checking.id, payee_id: 999999, amount: '1' });
+  test('payment to unknown payee is 404', async ({ api, user }) => {
+    const from = await live(api, user, billPay.payment.from);
+    const res = await api.post('/payments', { from_account_id: from.id, payee_id: billPay.unknownPayeeId, amount: '1' });
     expect(res.status()).toBe(404);
   });
 });

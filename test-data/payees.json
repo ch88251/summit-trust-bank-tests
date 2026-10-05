@@ -1,0 +1,36 @@
+{
+  "newPayee": { "name": "Gym", "accountNumber": "123456789", "nickname": "Membership" },
+  "payeeToRemove": "Metro Water",
+  "invalidPayees": [
+    {
+      "scenario": "rejects duplicate payees",
+      "input": { "name": "city electric", "accountNumber": "88442211" },
+      "expected": { "error": "A payee with this name and account number already exists" }
+    },
+    {
+      "scenario": "requires a name",
+      "input": { "name": "   ", "accountNumber": "12345" },
+      "expected": { "error": "Payee name is required." }
+    },
+    {
+      "scenario": "rejects account number \"123\"",
+      "input": { "name": "Some Payee", "accountNumber": "123" },
+      "expected": { "error": "Account number must be 4–17 digits." }
+    },
+    {
+      "scenario": "rejects account number \"abcd1234\"",
+      "input": { "name": "Some Payee", "accountNumber": "abcd1234" },
+      "expected": { "error": "Account number must be 4–17 digits." }
+    },
+    {
+      "scenario": "rejects an empty account number",
+      "input": { "name": "Some Payee", "accountNumber": "" },
+      "expected": { "error": "Account number must be 4–17 digits." }
+    }
+  ],
+  "api": {
+    "newPayee": { "name": "Landlord", "accountNumber": "99887766", "nickname": "Rent" },
+    "duplicate": { "name": "CITY ELECTRIC", "accountNumber": "88442211" },
+    "invalidAccountNumbers": ["123", "123456789012345678", "12ab"]
+  }
+}

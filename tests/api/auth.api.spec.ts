@@ -1,5 +1,9 @@
-import { expect, test } from '../../src/fixtures';
-import { users } from '../../src/data/testData';
+import { expect, getUser, loadData, test, type Credentials, type Scenario } from '@framework';
+
+const data = loadData<{
+  invalidCredentials: Scenario<Credentials>[];
+  messages: { invalidCredentials: string };
+}>('auth');
 
 test.describe('Auth API', () => {
   test('GET /api/health', async ({ anonApi }) => {
@@ -9,30 +13,33 @@ test.describe('Auth API', () => {
   });
 
   test('login returns a bearer token and the user', async ({ anonApi }) => {
-    const body = await anonApi.login(users.demo.username, users.demo.password);
+    const user = getUser();
+    const body = await anonApi.login(user.username, user.password);
     expect(body.access_token).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
     expect(body.user).toMatchObject({
-      username: users.demo.username,
-      full_name: users.demo.fullName,
-      email: users.demo.email,
+      username: user.username,
+      full_name: user.fullName,
+      email: user.email,
     });
   });
 
-  test('login with wrong password is 401', async ({ anonApi }) => {
-    const res = await anonApi.post('/auth/login', { username: 'demo', password: 'nope' });
-    expect(res.status()).toBe(401);
-    expect(await res.json()).toEqual({ detail: 'Invalid username or password' });
-  });
+  for (const { scenario, input } of data.invalidCredentials) {
+    test(`login with ${scenario} is 401`, async ({ anonApi }) => {
+      const res = await anonApi.post('/auth/login', input);
+      expect(res.status()).toBe(401);
+      expect(await res.json()).toEqual({ detail: data.messages.invalidCredentials });
+    });
+  }
 
   test('login with missing fields is 422', async ({ anonApi }) => {
     const res = await anonApi.post('/auth/login', { username: '', password: '' });
     expect(res.status()).toBe(422);
   });
 
-  test('GET /auth/me returns the current user', async ({ api }) => {
+  test('GET /auth/me returns the current user', async ({ api, user }) => {
     const res = await api.get('/auth/me');
     expect(res.status()).toBe(200);
-    expect((await res.json()).username).toBe(users.demo.username);
+    expect((await res.json()).username).toBe(user.username);
   });
 
   test('logout returns 204', async ({ api }) => {

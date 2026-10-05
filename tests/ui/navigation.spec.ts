@@ -1,4 +1,4 @@
-import { expect, test } from '../../src/fixtures';
+import { expect, test } from '@framework';
 
 test.describe('Navigation', () => {
   test('root redirects to accounts', async ({ page, accountsPage }) => {
@@ -7,8 +7,8 @@ test.describe('Navigation', () => {
     await expect(accountsPage.root).toBeVisible();
   });
 
-  test('main menu links navigate and highlight the active page', async ({ page, header, tradePage, transferPayPage, accountsPage }) => {
-    await page.goto('/accounts');
+  test('main menu links navigate and highlight the active page', async ({ page, flows, header, tradePage, transferPayPage, accountsPage }) => {
+    await flows.accounts.openAccounts();
     await expect(header.navAccounts).toHaveClass(/active/);
 
     await header.navTrade.click();
@@ -25,13 +25,13 @@ test.describe('Navigation', () => {
     await expect(accountsPage.root).toBeVisible();
   });
 
-  test('unknown routes show a not found page', async ({ page }) => {
+  test('unknown routes show a not found page', async ({ page, notFoundPage }) => {
     await page.goto('/does-not-exist');
-    await expect(page.getByTestId('not-found')).toContainText('Page not found');
+    await expect(notFoundPage.root).toContainText('Page not found');
   });
 
-  test('page title', async ({ page }) => {
-    await page.goto('/accounts');
+  test('page title', async ({ page, flows }) => {
+    await flows.accounts.openAccounts();
     await expect(page).toHaveTitle('Summit Trust Bank');
   });
 });
