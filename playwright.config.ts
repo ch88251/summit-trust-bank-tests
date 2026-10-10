@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-export const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8000';
+export const BASE_URL = process.env.BASE_URL ?? 'https://bank.cfhayes.com';
 export const DEMO_STORAGE_STATE = '.auth/demo.json';
 
 export default defineConfig({

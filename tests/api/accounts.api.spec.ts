@@ -51,6 +51,24 @@ test.describe('Accounts API', () => {
     expect((await api.get(`/accounts/${janeChecking.id}/transactions`)).status()).toBe(404);
   });
 
+  test('demo account cannot withdraw money from jane account', async ({ api, playwright, baseURL }) => {
+    const ctx = await playwright.request.newContext({ baseURL });
+    const jane = new BankApi(ctx);
+    await jane.login(users.jane.username, users.jane.password);
+    const janeChecking = await jane.accountByType('CHECKING');
+    await ctx.dispose();
+
+    const checking = await api.accountByType('CHECKING');
+    const res = await api.post('/transfers', {
+      from_account_id: checking.id,
+      to_account_id: janeChecking.id,
+      amount: '100.00',
+    });
+
+    // Expect a 404 status because the demo account cannot withdraw from Jane's account
+    expect(res.status()).toBe(404);
+  });
+
   test('reset endpoint restores seed data', async ({ api }) => {
     const checking = await api.accountByType('CHECKING');
     const savings = await api.accountByType('SAVINGS');
@@ -60,4 +78,6 @@ test.describe('Accounts API', () => {
     await api.resetDatabase();
     expect((await api.accountByType('CHECKING')).balance).toBe(users.demo.accounts.checking.balance);
   });
+
+
 });

@@ -1,5 +1,4 @@
 name: summit-trust-bank
-
 services:
   db:
     image: postgres:17-alpine
