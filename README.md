@@ -7,6 +7,7 @@ Playwright (TypeScript) UI and API tests for the
 
 - Node.js 20+
 - Docker with the Compose plugin
+- Java 17+ (only for generating the Serenity BDD report)
 
 ## Quick start
 
@@ -31,7 +32,28 @@ Demo users: `demo / Demo@123` (checking, savings, brokerage) and `jane / Jane@12
 | `npm run test:ui` | Browser tests only (runs the auth setup first) |
 | `npm run test:api` | REST API tests only |
 | `npm run test:headed` / `test:debug` | Watch or step through the UI tests |
+| `npm run test:serenity` | Clean `target/`, run all tests, then build the Serenity BDD report (runs every step even if tests fail) |
+| `npm run serenity:report` | Build the Serenity BDD report from the last run's JSON in `target/site/serenity` |
+| `npm run serenity:clean` | Delete `target/` |
 | `npm run typecheck` | `tsc --noEmit` |
+
+## Serenity BDD reporting
+
+Playwright runs the tests. [Serenity/JS](https://serenity-js.org) is used **only for reporting** (no Cucumber,
+no Screenplay): the `@serenity-js/playwright-test` reporter in `playwright.config.ts` writes Serenity BDD JSON
+to `target/site/serenity` on every run, next to Playwright's own reports. Tests keep importing `test`/`expect`
+from `src/fixtures.ts` (plain `@playwright/test`).
+
+```bash
+npm run test:serenity                  # or: npm test && npm run serenity:report
+open target/site/serenity/index.html
+```
+
+- `serenity:report` downloads the Serenity BDD CLI jar on first use (cached in `node_modules`) and needs Java.
+- The report groups tests by folder (`tests/api`, `tests/ui` → capabilities) and `test.describe` (→ features).
+  Playwright tags (`test('…', { tag: '@smoke' })`) show up as report tags.
+- Each test's outcome, error, and video (if any) is included. Playwright `test.step`s and screenshots are not,
+  because the reporter does not support them. Use the Playwright HTML report (`npm run report`) for those.
 
 ## Docker Compose
 
@@ -56,7 +78,7 @@ The app creates its tables and seeds the demo data on first start.
 
 ```
 docker-compose.yml
-playwright.config.ts        projects: setup → ui, api
+playwright.config.ts        projects: setup → ui, api; list/html/Serenity reporters
 src/
   global-setup.ts           waits for /api/health; fails with a clear message if the app is down
   fixtures.ts               extended `test`: resets the DB before each test, page objects, API clients

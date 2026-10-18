@@ -2,7 +2,7 @@
   "name": "summit-bank-test-automation",
   "version": "1.0.0",
   "private": true,
-  "description": "Playwright UI and API tests for the Summit Trust Bank sample application",
+  "description": "Playwright UI and API tests for the Summit Trust Bank sample application, with Serenity BDD reporting via Serenity/JS",
   "scripts": {
     "env:up": "docker compose up -d --wait",
     "env:down": "docker compose down",
@@ -14,11 +14,18 @@
     "test:headed": "playwright test --project=ui --headed",
     "test:debug": "playwright test --debug",
     "report": "playwright show-report",
+    "test:serenity": "failsafe serenity:clean test serenity:report",
+    "serenity:clean": "node -e \"require('fs').rmSync('target', { recursive: true, force: true })\"",
+    "serenity:report": "serenity-bdd update && serenity-bdd run --features ./tests",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@serenity-js/core": "^3.49.0",
+    "@serenity-js/playwright-test": "^3.49.0",
+    "@serenity-js/serenity-bdd": "^3.49.0",
     "@types/node": "^24.19.1",
+    "npm-failsafe": "^1.4.0",
     "typescript": "^7.0.2"
   }
 }
