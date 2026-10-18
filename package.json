@@ -2,7 +2,7 @@
   "name": "summit-bank-test-automation",
   "version": "1.0.0",
   "private": true,
-  "description": "Playwright UI and API tests for the Summit Trust Bank sample application",
+  "description": "Playwright and Serenity/JS (Cucumber + Screenplay) UI and API tests for the Summit Trust Bank sample application",
   "scripts": {
     "env:up": "docker compose up -d --wait",
     "env:down": "docker compose down",
@@ -13,12 +13,26 @@
     "test:api": "playwright test --project=api",
     "test:headed": "playwright test --project=ui --headed",
     "test:debug": "playwright test --debug",
+    "test:bdd": "cucumber-js",
+    "test:bdd:headed": "HEADED=1 cucumber-js",
+    "report:bdd": "serenity-bdd run --features ./features",
+    "serenity:update": "serenity-bdd update",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@cucumber/cucumber": "^13.3.0",
+    "@playwright/test": "^1.64.1",
+    "@serenity-js/assertions": "^3.49.0",
+    "@serenity-js/console-reporter": "^3.49.0",
+    "@serenity-js/core": "^3.49.0",
+    "@serenity-js/cucumber": "^3.49.0",
+    "@serenity-js/playwright": "^3.49.0",
+    "@serenity-js/rest": "^3.49.0",
+    "@serenity-js/serenity-bdd": "^3.49.0",
+    "@serenity-js/web": "^3.49.0",
     "@types/node": "^24.19.1",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }
